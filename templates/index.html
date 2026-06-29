@@ -1,0 +1,1043 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Decoherence Lab — Bell Pair Noise Simulator</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600;700&family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.4/dist/chart.umd.min.js"></script>
+<script src="https://cdn.plot.ly/plotly-2.35.2.min.js"></script>
+<style>
+
+:root{
+  --bg-0:#070d16;
+  --bg-1:#0a1628;
+  --bg-2:#0e1f38;
+  --panel:#0d1c30;
+  --panel-edge:#1c3450;
+  --grid:#23415f;
+  --ink:#e8ecf1;
+  --ink-dim:#8fa3bc;
+  --ink-faint:#5a7191;
+  --cyan:#5ad9d9;
+  --cyan-dim:#2c7a7a;
+  --amber:#e8a23d;
+  --amber-dim:#7a5420;
+  --rose:#e2607a;
+  --good:#5ad9a0;
+}
+
+*{margin:0;padding:0;box-sizing:border-box;}
+
+html,body{
+  background:var(--bg-0);
+  color:var(--ink);
+  font-family:'Inter',sans-serif;
+  min-height:100vh;
+  overflow-x:hidden;
+}
+
+body{
+  background-image:
+    radial-gradient(circle at 15% 0%, rgba(90,217,217,0.07), transparent 45%),
+    radial-gradient(circle at 100% 30%, rgba(232,162,61,0.05), transparent 50%),
+    linear-gradient(180deg, var(--bg-1) 0%, var(--bg-0) 100%);
+}
+
+/* faint moving grid backdrop, instrument feel */
+.gridbg{
+  position:fixed; inset:0; z-index:-1; opacity:.35;
+  background-image:
+    linear-gradient(var(--grid) 1px, transparent 1px),
+    linear-gradient(90deg, var(--grid) 1px, transparent 1px);
+  background-size:42px 42px;
+  mask-image:radial-gradient(circle at 30% 10%, black 0%, transparent 70%);
+}
+
+.mono{font-family:'IBM Plex Mono',monospace;}
+
+/* ---------------- Header ---------------- */
+
+header{
+  display:flex; justify-content:space-between; align-items:center;
+  padding:22px 40px;
+  border-bottom:1px solid var(--panel-edge);
+  background:rgba(7,13,22,0.6);
+  backdrop-filter:blur(14px);
+  position:sticky; top:0; z-index:50;
+}
+
+.brand{display:flex; align-items:center; gap:14px;}
+
+.brand-mark{
+  width:38px; height:38px; border-radius:10px;
+  background:linear-gradient(135deg, var(--cyan), var(--cyan-dim));
+  display:flex; align-items:center; justify-content:center;
+  font-weight:800; color:#04161a; font-size:16px;
+  box-shadow:0 0 24px rgba(90,217,217,.35);
+}
+
+.brand-text h1{
+  font-size:17px; font-weight:700; letter-spacing:.2px;
+}
+.brand-text span{
+  display:block; font-size:11px; color:var(--ink-faint);
+  font-family:'IBM Plex Mono',monospace; letter-spacing:.5px; margin-top:2px;
+}
+
+.statebar{
+  display:flex; gap:26px; align-items:center;
+  font-family:'IBM Plex Mono',monospace; font-size:12px; color:var(--ink-dim);
+}
+
+.statebar .dot{
+  width:7px; height:7px; border-radius:50%; background:var(--good);
+  display:inline-block; margin-right:7px; box-shadow:0 0 8px var(--good);
+}
+
+/* ---------------- Layout ---------------- */
+
+.wrapper{
+  display:grid;
+  grid-template-columns:340px 1fr;
+  gap:26px;
+  padding:30px 40px 70px;
+  max-width:1640px;
+  margin:0 auto;
+}
+
+@media(max-width:1100px){
+  .wrapper{grid-template-columns:1fr;}
+}
+
+.panel{
+  background:linear-gradient(165deg, var(--panel), #0a1626);
+  border:1px solid var(--panel-edge);
+  border-radius:16px;
+  padding:24px;
+  position:relative;
+}
+
+.panel::before{
+  content:"";
+  position:absolute; top:0; left:24px; right:24px; height:1px;
+  background:linear-gradient(90deg, transparent, rgba(90,217,217,.5), transparent);
+}
+
+.panel-label{
+  font-family:'IBM Plex Mono',monospace;
+  font-size:11px; letter-spacing:1.6px; text-transform:uppercase;
+  color:var(--ink-faint); margin-bottom:18px; display:flex;
+  align-items:center; gap:8px;
+}
+.panel-label::after{
+  content:""; flex:1; height:1px; background:var(--panel-edge);
+}
+
+/* ---------------- Sidebar controls ---------------- */
+
+.sidebar{display:flex; flex-direction:column; gap:22px; align-self:start; position:sticky; top:104px;}
+
+.field{display:flex; flex-direction:column; gap:8px; margin-bottom:18px;}
+.field:last-of-type{margin-bottom:0;}
+
+.field label{
+  font-size:12.5px; font-weight:600; color:var(--ink-dim);
+  display:flex; justify-content:space-between; align-items:baseline;
+}
+.field label .val{
+  font-family:'IBM Plex Mono',monospace; color:var(--cyan); font-size:12.5px;
+}
+
+select{
+  height:46px; border:1px solid var(--panel-edge); outline:none;
+  padding:0 14px; border-radius:10px; background:#0a1726; color:var(--ink);
+  font-size:13.5px; font-family:'Inter',sans-serif; cursor:pointer;
+  appearance:none;
+  background-image:url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'><path fill='%238fa3bc' d='M4 6l4 4 4-4'/></svg>");
+  background-repeat:no-repeat; background-position:right 14px center;
+}
+select:focus{border-color:var(--cyan);}
+
+input[type=range]{
+  -webkit-appearance:none; width:100%; height:4px; border-radius:2px;
+  background:var(--panel-edge); outline:none; cursor:pointer;
+}
+input[type=range]::-webkit-slider-thumb{
+  -webkit-appearance:none; width:16px; height:16px; border-radius:50%;
+  background:var(--cyan); box-shadow:0 0 10px rgba(90,217,217,.6); cursor:pointer;
+  border:2px solid #04161a;
+}
+input[type=range]::-moz-range-thumb{
+  width:16px; height:16px; border-radius:50%; background:var(--cyan);
+  border:2px solid #04161a; cursor:pointer;
+}
+
+input[type=number]{
+  height:46px; border:1px solid var(--panel-edge); outline:none;
+  padding:0 14px; border-radius:10px; background:#0a1726; color:var(--ink);
+  font-family:'IBM Plex Mono',monospace; font-size:14px;
+}
+input[type=number]:focus{border-color:var(--cyan);}
+
+.noise-desc{
+  font-size:11.5px; color:var(--ink-faint); line-height:1.5; margin-top:2px;
+  font-family:'IBM Plex Mono',monospace;
+}
+
+.runBtn{
+  margin-top:8px; height:52px; border:none; cursor:pointer; border-radius:12px;
+  font-size:14.5px; font-weight:700; letter-spacing:.4px;
+  background:linear-gradient(135deg, var(--cyan), #2a9d9d); color:#04161a;
+  display:flex; align-items:center; justify-content:center; gap:10px;
+  transition:transform .25s, box-shadow .25s;
+  text-transform:uppercase;
+}
+.runBtn:hover{transform:translateY(-2px); box-shadow:0 10px 30px rgba(90,217,217,.3);}
+.runBtn:active{transform:translateY(0);}
+.runBtn:disabled{opacity:.55; cursor:wait; transform:none;}
+
+.runBtn svg{width:16px; height:16px;}
+
+.loading{
+  display:none; margin-top:16px; align-items:center; gap:10px;
+  font-family:'IBM Plex Mono',monospace; font-size:12px; color:var(--cyan);
+}
+.loading.show{display:flex;}
+.spinner{
+  width:16px; height:16px; border-radius:50%;
+  border:2.5px solid rgba(90,217,217,.25); border-top:2.5px solid var(--cyan);
+  animation:spin .8s linear infinite;
+}
+@keyframes spin{100%{transform:rotate(360deg);}}
+
+/* ---------------- Main grid ---------------- */
+
+.main{display:flex; flex-direction:column; gap:24px;}
+
+.metrics{
+  display:grid; grid-template-columns:repeat(4,1fr); gap:18px;
+}
+@media(max-width:780px){.metrics{grid-template-columns:repeat(2,1fr);}}
+
+.metric{
+  background:linear-gradient(165deg, var(--panel), #0a1626);
+  border:1px solid var(--panel-edge); border-radius:14px;
+  padding:20px 18px; position:relative; overflow:hidden;
+}
+.metric .tag{
+  font-family:'IBM Plex Mono',monospace; font-size:10.5px; letter-spacing:1.2px;
+  text-transform:uppercase; color:var(--ink-faint);
+}
+.metric .num{
+  font-family:'IBM Plex Mono',monospace; font-size:34px; font-weight:600;
+  margin-top:8px; color:var(--cyan); letter-spacing:-1px;
+}
+.metric .sub{font-size:11px; color:var(--ink-faint); margin-top:4px;}
+.metric.amber .num{color:var(--amber);}
+.metric.rose .num{color:var(--rose);}
+.metric.good .num{color:var(--good);}
+.metric::after{
+  content:""; position:absolute; right:-30px; top:-30px; width:90px; height:90px;
+  border-radius:50%; background:radial-gradient(circle, rgba(90,217,217,.12), transparent 70%);
+}
+
+.row2{display:grid; grid-template-columns:1.3fr 1fr; gap:24px;}
+@media(max-width:1100px){.row2{grid-template-columns:1fr;}}
+
+.chartbox{height:300px; position:relative;}
+.chartbox.tall{height:360px;}
+
+.matrix-grid{
+  display:grid; grid-template-columns:repeat(4, 1fr); gap:6px;
+  margin-top:6px;
+}
+.mcell{
+  aspect-ratio:1; border-radius:8px; display:flex; flex-direction:column;
+  align-items:center; justify-content:center; position:relative;
+  border:1px solid rgba(255,255,255,.04);
+  transition:background .4s;
+}
+.mcell .re{font-family:'IBM Plex Mono',monospace; font-size:12px; font-weight:600;}
+.mcell .im{font-family:'IBM Plex Mono',monospace; font-size:9.5px; color:var(--ink-faint); margin-top:1px;}
+.matrix-legend{display:flex; justify-content:space-between; margin-top:14px; font-size:11px; color:var(--ink-faint); font-family:'IBM Plex Mono',monospace;}
+.matrix-axis{font-size:10px; color:var(--ink-faint); font-family:'IBM Plex Mono',monospace; text-align:center;}
+.matrix-wrap{display:grid; grid-template-columns:auto 1fr; gap:8px; align-items:center;}
+.matrix-rowlabels{display:grid; grid-template-rows:repeat(4,1fr); gap:6px; height:100%;}
+.matrix-rowlabels span{display:flex; align-items:center; font-family:'IBM Plex Mono',monospace; font-size:10px; color:var(--ink-faint);}
+.matrix-collabels{display:grid; grid-template-columns:repeat(4,1fr); gap:6px; margin-bottom:6px;}
+.matrix-collabels span{text-align:center; font-family:'IBM Plex Mono',monospace; font-size:10px; color:var(--ink-faint);}
+
+.downloadBox{
+  display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:14px;
+}
+.downloadBox .left{display:flex; flex-direction:column; gap:4px;}
+.downloadBox .left .t{font-size:13.5px; font-weight:600;}
+.downloadBox .left .s{font-size:11.5px; color:var(--ink-faint); font-family:'IBM Plex Mono',monospace;}
+
+.downloadBtn{
+  padding:13px 26px; border:1px solid var(--panel-edge); border-radius:10px;
+  font-size:13px; cursor:pointer; background:transparent; color:var(--ink);
+  font-weight:600; display:flex; align-items:center; gap:8px;
+  transition:.25s;
+}
+.downloadBtn:hover{border-color:var(--cyan); color:var(--cyan); background:rgba(90,217,217,.06);}
+.downloadBtn svg{width:14px; height:14px;}
+
+.downloadBtn.primary{
+  background:linear-gradient(135deg, var(--amber), #b3792c); border:none; color:#1a1106;
+}
+.downloadBtn.primary:hover{color:#1a1106; box-shadow:0 8px 24px rgba(232,162,61,.25);}
+
+footer{
+  text-align:center; padding:24px; color:var(--ink-faint);
+  font-family:'IBM Plex Mono',monospace; font-size:11px;
+}
+
+::-webkit-scrollbar{width:8px;}
+::-webkit-scrollbar-track{background:transparent;}
+::-webkit-scrollbar-thumb{background:var(--panel-edge); border-radius:4px;}
+
+</style>
+</head>
+<body>
+
+<div class="gridbg"></div>
+
+<header>
+  <div class="brand">
+    <div class="brand-mark">Q</div>
+    <div class="brand-text">
+      <h1>Decoherence Lab</h1>
+      <span>BELL-PAIR NOISE CHANNEL SIMULATOR</span>
+    </div>
+  </div>
+  <div class="statebar">
+    <span><span class="dot"></span>ENGINE READY</span>
+    <span id="lastRunStamp">NO RUNS YET</span>
+  </div>
+</header>
+
+<div class="wrapper">
+
+  <!-- SIDEBAR -->
+  <div class="panel sidebar">
+    <div class="panel-label">Channel Parameters</div>
+
+    <div class="field">
+      <label>Noise Channel</label>
+      <select id="noise">
+        <option value="Phase Noise">Phase Noise (dephasing)</option>
+        <option value="Amplitude Damping">Amplitude Damping</option>
+        <option value="Depolarizing Noise">Depolarizing Noise</option>
+        <option value="Bit Flip">Bit Flip</option>
+        <option value="Phase Flip">Phase Flip</option>
+      </select>
+      <div class="noise-desc" id="noiseDesc">L = γ·σz on each qubit — randomizes relative phase, leaves populations untouched.</div>
+    </div>
+
+    <div class="field">
+      <label>Gamma (γ) <span class="val" id="gammaValue">0.05</span></label>
+      <input type="range" min="0" max="1" step="0.01" value="0.05" id="gamma">
+    </div>
+
+    <div class="field">
+      <label>Probability (p) <span class="val" id="probabilityValue">0.05</span></label>
+      <input type="range" min="0" max="1" step="0.01" value="0.05" id="probability">
+    </div>
+
+    <div class="field">
+      <label>Time Steps</label>
+      <input type="number" id="steps" value="50" min="2" max="400">
+    </div>
+
+    <button class="runBtn" id="runSimulation">
+      <svg viewBox="0 0 24 24" fill="none"><path d="M5 3l16 9-16 9V3z" fill="currentColor"/></svg>
+      Run Simulation
+    </button>
+
+    <div class="loading" id="loading">
+      <div class="spinner"></div>
+      Integrating Lindblad evolution…
+    </div>
+  </div>
+
+  <!-- MAIN -->
+  <div class="main">
+
+    <div class="metrics">
+      <div class="metric">
+        <div class="tag">Final Fidelity</div>
+        <div class="num mono" id="fidelityMetric">—</div>
+        <div class="sub">vs. ideal Bell state</div>
+      </div>
+      <div class="metric good">
+        <div class="tag">Entanglement</div>
+        <div class="num mono" id="entMetric">—</div>
+        <div class="sub">Wootters concurrence</div>
+      </div>
+      <div class="metric amber">
+        <div class="tag">Purity</div>
+        <div class="num mono" id="purityMetric">—</div>
+        <div class="sub">Tr(ρ²)</div>
+      </div>
+      <div class="metric rose">
+        <div class="tag">Sim Duration</div>
+        <div class="num mono" id="timeMetric">—</div>
+        <div class="sub">wall-clock, this browser</div>
+      </div>
+    </div>
+
+    <div class="panel">
+      <div class="panel-label">Marginal Populations P(|0⟩), P(|1⟩) per Qubit</div>
+      <div class="chartbox"><canvas id="probabilityChart"></canvas></div>
+    </div>
+
+    <div class="row2">
+      <div class="panel">
+        <div class="panel-label">Fidelity Decay F(t) = ⟨Φ|ρ(t)|Φ⟩</div>
+        <div class="chartbox"><canvas id="fidelityChart"></canvas></div>
+      </div>
+      <div class="panel">
+        <div class="panel-label">Entanglement Decay C(t)</div>
+        <div class="chartbox"><canvas id="entanglementChart"></canvas></div>
+      </div>
+    </div>
+
+    <div class="row2">
+      <div class="panel">
+        <div class="panel-label">Density Matrix |ρ| — Final State</div>
+        <div class="matrix-wrap">
+          <div></div>
+          <div class="matrix-collabels">
+            <span>00</span><span>01</span><span>10</span><span>11</span>
+          </div>
+        </div>
+        <div class="matrix-wrap">
+          <div class="matrix-rowlabels">
+            <span>00</span><span>01</span><span>10</span><span>11</span>
+          </div>
+          <div class="matrix-grid" id="densityMatrix"></div>
+        </div>
+        <div class="matrix-legend">
+          <span>Re(ρᵢⱼ) shown, Im below</span>
+          <span id="matrixNote">bright = |Bell pair| coherence intact</span>
+        </div>
+      </div>
+
+      <div class="panel">
+        <div class="panel-label">Qubit-0 Bloch Vector (reduced state)</div>
+        <div class="chartbox tall" id="blochSphere"></div>
+      </div>
+    </div>
+
+    <div class="panel downloadBox">
+      <div class="left">
+        <div class="t" id="downloadFilename">No simulation run yet</div>
+        <div class="s" id="downloadSummary">Run a simulation to generate a results file</div>
+      </div>
+      <div style="display:flex; gap:12px;">
+        <button class="downloadBtn" id="downloadJson">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 3v12m0 0l-4-4m4 4l4-4M5 21h14"/></svg>
+          Raw JSON
+        </button>
+        <button class="downloadBtn primary" id="downloadCsv">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 3v12m0 0l-4-4m4 4l4-4M5 21h14"/></svg>
+          Time-Series CSV
+        </button>
+      </div>
+    </div>
+
+  </div>
+</div>
+
+<footer>
+  Lindblad/channel math implemented client-side · physics mirrors a QuTiP backend (mesolve, fidelity, concurrence) on a |Φ⁺⟩ Bell pair
+</footer>
+
+<script>
+/* =========================================================================
+   COMPLEX LINEAR ALGEBRA — minimal kit for 2-qubit (4x4) density matrices
+   ========================================================================= */
+
+function zeros(n,m){ return Array.from({length:n},()=>Array.from({length:m},()=>[0,0])); }
+function cAdd(a,b){return [a[0]+b[0], a[1]+b[1]];}
+function cSub(a,b){return [a[0]-b[0], a[1]-b[1]];}
+function cMul(a,b){return [a[0]*b[0]-a[1]*b[1], a[0]*b[1]+a[1]*b[0]];}
+function cConj(a){return [a[0], -a[1]];}
+function cScale(a,s){return [a[0]*s, a[1]*s];}
+function cAbs(a){return Math.sqrt(a[0]*a[0]+a[1]*a[1]);}
+
+function matMul(A,B){
+  const n=A.length, k=B.length, m=B[0].length;
+  const C=zeros(n,m);
+  for(let i=0;i<n;i++)for(let j=0;j<m;j++){
+    let s=[0,0];
+    for(let l=0;l<k;l++) s=cAdd(s, cMul(A[i][l], B[l][j]));
+    C[i][j]=s;
+  }
+  return C;
+}
+function matAdd(A,B){
+  return A.map((row,i)=>row.map((v,j)=>cAdd(v,B[i][j])));
+}
+function matScale(A,s){
+  return A.map(row=>row.map(v=>cScale(v,s)));
+}
+function matDagger(A){
+  const n=A.length, m=A[0].length;
+  const T=zeros(m,n);
+  for(let i=0;i<n;i++)for(let j=0;j<m;j++) T[j][i]=cConj(A[i][j]);
+  return T;
+}
+function identity(n){
+  const I=zeros(n,n);
+  for(let i=0;i<n;i++) I[i][i]=[1,0];
+  return I;
+}
+function kron(A,B){
+  const n=A.length, m=A[0].length, p=B.length, q=B[0].length;
+  const C=zeros(n*p, m*q);
+  for(let i=0;i<n;i++)for(let j=0;j<m;j++)for(let k=0;k<p;k++)for(let l=0;l<q;l++){
+    C[i*p+k][j*q+l]=cMul(A[i][j], B[k][l]);
+  }
+  return C;
+}
+
+// single-qubit operators
+const I2 = [[[1,0],[0,0]],[[0,0],[1,0]]];
+const sigmaX = [[[0,0],[1,0]],[[1,0],[0,0]]];
+const sigmaZ = [[[1,0],[0,0]],[[0,0],[-1,0]]];
+const sigmaY = [[[0,0],[0,-1]],[[0,1],[0,0]]];
+const destroyOp = [[[0,0],[1,0]],[[0,0],[0,0]]]; // a|1>-><0|, lowers |1>->|0>
+
+function ket(n, idx){ const v=zeros(n,1); v[idx][0]=[1,0]; return v; }
+function outer(u,v){ // |u><v|
+  const n=u.length, m=v.length;
+  const M=zeros(n,m);
+  for(let i=0;i<n;i++)for(let j=0;j<m;j++) M[i][j]=cMul(u[i][0], cConj(v[j][0]));
+  return M;
+}
+
+/* =========================================================================
+   PHYSICAL SETUP — Bell pair |Φ+> = (|00> + |11>)/sqrt(2)
+   ========================================================================= */
+
+function createBellPair(){
+  const q00 = kron(ket(2,0), ket(2,0)); // |00>
+  const q11 = kron(ket(2,1), ket(2,1)); // |11>
+  const inv = 1/Math.sqrt(2);
+  const psi = zeros(4,1);
+  for(let i=0;i<4;i++) psi[i][0] = cAdd(cScale(q00[i][0],inv), cScale(q11[i][0],inv));
+  return psi;
+}
+function ket2dm(psi){ return outer(psi, psi); }
+
+const BELL_KET = createBellPair();
+const BELL_DM  = ket2dm(BELL_KET);
+
+/* =========================================================================
+   NOISE CHANNELS — mirrors app.py exactly
+   ========================================================================= */
+
+// Lindblad dissipator step (first-order Euler integration of d rho/dt = sum (L rho L† - 1/2{L†L,rho}) )
+// used for Phase Noise & Amplitude Damping, integrated across [0,t] in `steps` substeps
+function lindbladEvolve(rho0, Lops, t, substeps=40){
+  let rho = rho0;
+  const dt = t/substeps;
+  for(let s=0;s<substeps;s++){
+    let drho = zeros(4,4);
+    for(const L of Lops){
+      const Ld = matDagger(L);
+      const LrhoLd = matMul(matMul(L, rho), Ld);
+      const LdL = matMul(Ld, L);
+      const anticom = matAdd(matMul(LdL, rho), matMul(rho, LdL));
+      const term = matSub(LrhoLd, matScale(anticom, 0.5));
+      drho = matAdd(drho, term);
+    }
+    rho = matAdd(rho, matScale(drho, dt));
+  }
+  return rho;
+}
+function matSub(A,B){ return A.map((row,i)=>row.map((v,j)=>cSub(v,B[i][j]))); }
+
+function applyPhaseNoise(rho, gamma, t){
+  const sz1 = kron(sigmaZ, I2);
+  const sz2 = kron(I2, sigmaZ);
+  const L = [matScale(sz1, gamma), matScale(sz2, gamma)];
+  return lindbladEvolve(rho, L, t);
+}
+
+function applyAmplitudeDamping(rho, gamma, t){
+  const a1 = kron(destroyOp, I2);
+  const a2 = kron(I2, destroyOp);
+  const L = [matScale(a1, gamma), matScale(a2, gamma)];
+  return lindbladEvolve(rho, L, t);
+}
+
+function applyDepolarizingNoise(rho, p){
+  const I4 = identity(4);
+  return matAdd(matScale(rho, 1-p), matScale(I4, p/4));
+}
+
+function applyBitFlip(rho, p){
+  const XX = kron(sigmaX, sigmaX);
+  const XXrhoXX = matMul(matMul(XX, rho), XX);
+  return matAdd(matScale(rho, 1-p), matScale(XXrhoXX, p));
+}
+
+function applyPhaseFlip(rho, p){
+  const ZZ = kron(sigmaZ, sigmaZ);
+  const ZZrhoZZ = matMul(matMul(ZZ, rho), ZZ);
+  return matAdd(matScale(rho, 1-p), matScale(ZZrhoZZ, p));
+}
+
+/* =========================================================================
+   MEASUREMENTS — partial trace, fidelity, concurrence
+   ========================================================================= */
+
+function partialTraceQubit0(rho4){
+  // trace out qubit 1 (second qubit), keep qubit 0. Basis order |q0 q1>: 00,01,10,11
+  const r = zeros(2,2);
+  // rho_q0[i][j] = sum_k rho[2i+k][2j+k]
+  for(let i=0;i<2;i++)for(let j=0;j<2;j++){
+    let s=[0,0];
+    for(let k=0;k<2;k++) s = cAdd(s, rho4[2*i+k][2*j+k]);
+    r[i][j]=s;
+  }
+  return r;
+}
+function partialTraceQubit1(rho4){
+  // trace out qubit 0, keep qubit 1
+  const r = zeros(2,2);
+  for(let i=0;i<2;i++)for(let j=0;j<2;j++){
+    let s=[0,0];
+    for(let k=0;k<2;k++) s = cAdd(s, rho4[2*k+i][2*k+j]);
+    r[i][j]=s;
+  }
+  return r;
+}
+
+function computeProbabilities(rho4){
+  const r0 = partialTraceQubit0(rho4);
+  const r1 = partialTraceQubit1(rho4);
+  return {
+    q0_0: r0[0][0][0],
+    q0_1: r0[1][1][0],
+    q1_0: r1[0][0][0],
+    q1_1: r1[1][1][0]
+  };
+}
+
+// Uhlmann fidelity between rho and a pure target state rho_target = |psi><psi|
+// reduces to F = sqrt(<psi|rho|psi>) for pure target (QuTiP's `fidelity` returns sqrt form by default)
+function computeFidelity(rho, targetKet){
+  const rowVec = matDagger(targetKet); // <psi|
+  const tmp = matMul(rowVec, rho);      // <psi|rho  (1x4)
+  const val = matMul(tmp, targetKet);   // <psi|rho|psi> (1x1)
+  const real = Math.max(0, val[0][0][0]);
+  return Math.sqrt(real);
+}
+
+// Wootters concurrence for 2-qubit density matrix
+function computeConcurrence(rho4){
+  const YY = kron(sigmaY, sigmaY);
+  const rhoConjStar = rho4.map(row=>row.map(v=>cConj(v))); // rho* (elementwise conjugate)
+  const rhoTilde = matMul(matMul(YY, rhoConjStar), YY);
+  const R = matMul(rho4, rhoTilde);
+  const eig = eigRealPartsOf4x4(R);
+  const sq = eig.map(e=> Math.sqrt(Math.max(e,0)) ).sort((a,b)=>b-a);
+  const c = sq[0] - sq[1] - sq[2] - sq[3];
+  return Math.max(0, c);
+}
+
+function purity(rho4){
+  const r2 = matMul(rho4, rho4);
+  let tr = 0;
+  for(let i=0;i<4;i++) tr += r2[i][i][0];
+  return Math.max(0, Math.min(1, tr));
+}
+
+// Eigenvalues of a 4x4 matrix that is similar to a Hermitian-positive operator (real, non-negative spectrum expected).
+// Use QR algorithm on the real part (imaginary parts are ~0 for R = rho * rho~ after symmetrization in practice for our test states).
+function eigRealPartsOf4x4(M){
+  // Convert to real matrix (R's eigenvalues are real & non-negative for valid density matrices); take real part
+  let A = M.map(row=>row.map(v=>v[0]));
+  // Shifted QR iteration (simple, robust enough for 4x4 well-behaved matrices here)
+  let n=4;
+  for(let iter=0; iter<200; iter++){
+    const {Q,R} = qrDecompose(A);
+    A = matMulReal(R,Q);
+  }
+  const eig=[];
+  for(let i=0;i<n;i++) eig.push(A[i][i]);
+  return eig;
+}
+function matMulReal(A,B){
+  const n=A.length, m=B[0].length, k=B.length;
+  const C=Array.from({length:n},()=>Array(m).fill(0));
+  for(let i=0;i<n;i++)for(let j=0;j<m;j++){let s=0; for(let l=0;l<k;l++) s+=A[i][l]*B[l][j]; C[i][j]=s;}
+  return C;
+}
+function qrDecompose(A){
+  const n=A.length;
+  const Q=Array.from({length:n},()=>Array(n).fill(0));
+  const R=Array.from({length:n},()=>Array(n).fill(0));
+  const cols=[];
+  for(let j=0;j<n;j++) cols.push(A.map(row=>row[j]));
+  const ortho=[];
+  for(let j=0;j<n;j++){
+    let v = cols[j].slice();
+    for(let i=0;i<j;i++){
+      const u = ortho[i];
+      const dot = v.reduce((s,x,k)=>s+x*u[k],0);
+      R[i][j]=dot;
+      for(let k=0;k<n;k++) v[k]-=dot*u[k];
+    }
+    let norm = Math.sqrt(v.reduce((s,x)=>s+x*x,0));
+    if(norm<1e-12) norm=1e-12;
+    R[j][j]=norm;
+    ortho.push(v.map(x=>x/norm));
+  }
+  for(let i=0;i<n;i++)for(let j=0;j<n;j++) Q[i][j]=ortho[j][i];
+  return {Q,R};
+}
+
+/* =========================================================================
+   FULL SIMULATION RUNNER — mirrors run_simulation() in app.py
+   ========================================================================= */
+
+function runSimulation(noiseType, gamma, p, tSteps){
+  const length = Math.max(parseInt(tSteps)||2, 2);
+  const tMax = Math.max(1, length);
+  const tlist = Array.from({length}, (_,i)=> i*(tMax/(length-1)) );
+
+  const prob_time = [];
+  const fidelity_time = [];
+  const ent_time = [];
+  const purity_time = [];
+  let finalRho = BELL_DM;
+
+  for(const t of tlist){
+    let rho;
+    switch(noiseType){
+      case "Phase Noise": rho = applyPhaseNoise(BELL_DM, gamma, t); break;
+      case "Amplitude Damping": rho = applyAmplitudeDamping(BELL_DM, gamma, t); break;
+      case "Depolarizing Noise": rho = applyDepolarizingNoise(BELL_DM, p); break;
+      case "Bit Flip": rho = applyBitFlip(BELL_DM, p); break;
+      case "Phase Flip": rho = applyPhaseFlip(BELL_DM, p); break;
+      default: rho = BELL_DM;
+    }
+    prob_time.push(computeProbabilities(rho));
+    fidelity_time.push(computeFidelity(rho, BELL_KET));
+    ent_time.push(computeConcurrence(rho));
+    purity_time.push(purity(rho));
+    finalRho = rho;
+  }
+
+  return { tlist, prob_time, fidelity_time, ent_time, purity_time, finalRho };
+}
+
+/* =========================================================================
+   UI WIRING
+   ========================================================================= */
+
+const noiseDescriptions = {
+  "Phase Noise": "L = γ·σz on each qubit — randomizes relative phase, leaves populations untouched.",
+  "Amplitude Damping": "L = γ·a on each qubit — energy relaxation toward |0⟩, models T1 decay.",
+  "Depolarizing Noise": "ρ → (1-p)ρ + (p/4)I — isotropic mixing toward the maximally mixed state.",
+  "Bit Flip": "ρ → (1-p)ρ + p·(X⊗X)ρ(X⊗X) — correlated bit-flip error on both qubits.",
+  "Phase Flip": "ρ → (1-p)ρ + p·(Z⊗Z)ρ(Z⊗Z) — correlated phase-flip error on both qubits."
+};
+
+const noiseSel = document.getElementById('noise');
+const gammaSlider = document.getElementById('gamma');
+const probSlider = document.getElementById('probability');
+const gammaVal = document.getElementById('gammaValue');
+const probVal = document.getElementById('probabilityValue');
+const noiseDesc = document.getElementById('noiseDesc');
+
+noiseSel.addEventListener('change', ()=>{ noiseDesc.textContent = noiseDescriptions[noiseSel.value]; });
+gammaSlider.addEventListener('input', ()=>{ gammaVal.textContent = parseFloat(gammaSlider.value).toFixed(2); });
+probSlider.addEventListener('input', ()=>{ probVal.textContent = parseFloat(probSlider.value).toFixed(2); });
+
+let probChart, fidChart, entChart;
+let lastResult = null;
+let lastParams = null;
+
+function buildCharts(){
+  const fontColor = '#8fa3bc';
+  const gridColor = 'rgba(255,255,255,0.05)';
+
+  Chart.defaults.font.family = "'IBM Plex Mono', monospace";
+  Chart.defaults.font.size = 11;
+  Chart.defaults.color = fontColor;
+
+  probChart = new Chart(document.getElementById('probabilityChart'), {
+    type:'line',
+    data:{ labels:[], datasets:[
+      {label:'Q0 |0⟩', data:[], borderColor:'#5ad9d9', backgroundColor:'transparent', tension:.3, pointRadius:0, borderWidth:2},
+      {label:'Q0 |1⟩', data:[], borderColor:'#2c7a7a', backgroundColor:'transparent', tension:.3, pointRadius:0, borderWidth:2, borderDash:[4,3]},
+      {label:'Q1 |0⟩', data:[], borderColor:'#e8a23d', backgroundColor:'transparent', tension:.3, pointRadius:0, borderWidth:2},
+      {label:'Q1 |1⟩', data:[], borderColor:'#b3792c', backgroundColor:'transparent', tension:.3, pointRadius:0, borderWidth:2, borderDash:[4,3]},
+    ]},
+    options:chartOptions('Time step', 'Probability', 0, 1)
+  });
+
+  fidChart = new Chart(document.getElementById('fidelityChart'), {
+    type:'line',
+    data:{ labels:[], datasets:[
+      {label:'Fidelity', data:[], borderColor:'#5ad9d9', backgroundColor:'rgba(90,217,217,0.08)', fill:true, tension:.3, pointRadius:0, borderWidth:2.5},
+    ]},
+    options:chartOptions('Time step', 'F(t)', 0, 1, false)
+  });
+
+  entChart = new Chart(document.getElementById('entanglementChart'), {
+    type:'line',
+    data:{ labels:[], datasets:[
+      {label:'Concurrence', data:[], borderColor:'#e2607a', backgroundColor:'rgba(226,96,122,0.08)', fill:true, tension:.3, pointRadius:0, borderWidth:2.5},
+    ]},
+    options:chartOptions('Time step', 'C(t)', 0, 1, false)
+  });
+}
+
+function chartOptions(xLabel, yLabel, min, max, legend=true){
+  return {
+    responsive:true, maintainAspectRatio:false,
+    interaction:{mode:'index', intersect:false},
+    plugins:{
+      legend:{display:legend, position:'top', align:'end', labels:{boxWidth:12, boxHeight:2, usePointStyle:false}},
+      tooltip:{backgroundColor:'#0a1626', borderColor:'#1c3450', borderWidth:1, titleColor:'#e8ecf1', bodyColor:'#8fa3bc', padding:10}
+    },
+    scales:{
+      x:{ grid:{color:'rgba(255,255,255,0.04)'}, ticks:{maxTicksLimit:8}, title:{display:true, text:xLabel, color:'#5a7191', font:{size:10}} },
+      y:{ min, max, grid:{color:'rgba(255,255,255,0.04)'}, title:{display:true, text:yLabel, color:'#5a7191', font:{size:10}} }
+    }
+  };
+}
+
+function renderDensityMatrix(rho){
+  const container = document.getElementById('densityMatrix');
+  container.innerHTML = '';
+  let maxAbs = 0;
+  for(let i=0;i<4;i++)for(let j=0;j<4;j++) maxAbs = Math.max(maxAbs, cAbs(rho[i][j]));
+  if(maxAbs < 1e-9) maxAbs = 1;
+
+  for(let i=0;i<4;i++){
+    for(let j=0;j<4;j++){
+      const v = rho[i][j];
+      const mag = cAbs(v)/maxAbs;
+      const cell = document.createElement('div');
+      cell.className='mcell';
+      const alpha = 0.08 + mag*0.55;
+      const isDiag = i===j;
+      cell.style.background = isDiag
+        ? `rgba(90,217,217,${alpha})`
+        : `rgba(232,162,61,${alpha*0.85})`;
+      cell.style.border = isDiag ? '1px solid rgba(90,217,217,.3)' : '1px solid rgba(232,162,61,.18)';
+      cell.innerHTML = `<div class="re">${v[0].toFixed(2)}</div><div class="im">${v[1]>=0?'+':''}${v[1].toFixed(2)}i</div>`;
+      container.appendChild(cell);
+    }
+  }
+}
+
+function renderBlochSphere(rho4){
+  const r0 = partialTraceQubit0(rho4);
+  // Bloch vector: x = 2*Re(rho01), y = 2*Im(rho10)... use standard: rho = 1/2 (I + x*X + y*Y + z*Z)
+  const x = 2*r0[0][1][0];
+  const y = 2*r0[0][1][1]; // since rho10 = conj(rho01), Im(rho10) = -Im(rho01); rho = (I + xX+yY+zZ)/2 -> rho01 = (x - iy)/2
+  const yBloch = -2*r0[0][1][1];
+  const z = r0[0][0][0] - r0[1][1][0];
+
+  const sphereTrace = {
+    type:'mesh3d',
+    opacity:0.12,
+    color:'#5ad9d9',
+    alphahull:0,
+    x: [], y: [], z: []
+  };
+  // generate a wireframe sphere using lines instead (cleaner look)
+  const lines = [];
+  const N=24;
+  for(let lat=0; lat<=4; lat++){
+    const phi = Math.PI*lat/4;
+    const xs=[],ys=[],zs=[];
+    for(let i=0;i<=N;i++){
+      const theta = 2*Math.PI*i/N;
+      xs.push(Math.sin(phi)*Math.cos(theta));
+      ys.push(Math.sin(phi)*Math.sin(theta));
+      zs.push(Math.cos(phi));
+    }
+    lines.push({type:'scatter3d', mode:'lines', x:xs,y:ys,z:zs, line:{color:'rgba(90,217,217,0.18)', width:1}, showlegend:false, hoverinfo:'skip'});
+  }
+  for(let lon=0; lon<8; lon++){
+    const theta = Math.PI*lon/4;
+    const xs=[],ys=[],zs=[];
+    for(let i=0;i<=N;i++){
+      const phi = Math.PI*i/N;
+      xs.push(Math.sin(phi)*Math.cos(theta));
+      ys.push(Math.sin(phi)*Math.sin(theta));
+      zs.push(Math.cos(phi));
+    }
+    lines.push({type:'scatter3d', mode:'lines', x:xs,y:ys,z:zs, line:{color:'rgba(90,217,217,0.18)', width:1}, showlegend:false, hoverinfo:'skip'});
+  }
+
+  const axisLines = [
+    {type:'scatter3d', mode:'lines', x:[-1.3,1.3],y:[0,0],z:[0,0], line:{color:'#5a7191', width:2}, showlegend:false, hoverinfo:'skip'},
+    {type:'scatter3d', mode:'lines', x:[0,0],y:[-1.3,1.3],z:[0,0], line:{color:'#5a7191', width:2}, showlegend:false, hoverinfo:'skip'},
+    {type:'scatter3d', mode:'lines', x:[0,0],y:[0,0],z:[-1.3,1.3], line:{color:'#5a7191', width:2}, showlegend:false, hoverinfo:'skip'},
+  ];
+
+  const stateVector = {
+    type:'scatter3d', mode:'lines+markers',
+    x:[0, x], y:[0, yBloch], z:[0, z],
+    line:{color:'#e8a23d', width:6},
+    marker:{size:[0,6], color:'#e8a23d'},
+    showlegend:false,
+    hovertemplate:`x:${x.toFixed(3)}<br>y:${yBloch.toFixed(3)}<br>z:${z.toFixed(3)}<extra></extra>`
+  };
+
+  const layout = {
+    margin:{l:0,r:0,t:0,b:0},
+    paper_bgcolor:'rgba(0,0,0,0)',
+    scene:{
+      bgcolor:'rgba(0,0,0,0)',
+      xaxis:{visible:false, range:[-1.3,1.3]},
+      yaxis:{visible:false, range:[-1.3,1.3]},
+      zaxis:{visible:false, range:[-1.3,1.3]},
+      camera:{eye:{x:1.4,y:1.2,z:0.9}}
+    },
+    showlegend:false
+  };
+
+  Plotly.newPlot('blochSphere', [...lines, ...axisLines, stateVector], layout, {displayModeBar:false, responsive:true});
+}
+
+function fmtTime(ms){
+  if(ms<1000) return ms.toFixed(0)+'ms';
+  return (ms/1000).toFixed(2)+'s';
+}
+
+async function execute(){
+  const noiseType = noiseSel.value;
+  const gamma = parseFloat(gammaSlider.value);
+  const p = parseFloat(probSlider.value);
+  const tSteps = parseInt(document.getElementById('steps').value) || 50;
+
+  const btn = document.getElementById('runSimulation');
+  const loading = document.getElementById('loading');
+  btn.disabled = true;
+  loading.classList.add('show');
+
+  // yield to render the loading state
+  await new Promise(r=>setTimeout(r, 30));
+
+  const t0 = performance.now();
+  let sim;
+  try{
+    sim = runSimulation(noiseType, gamma, p, tSteps);
+  } catch(e){
+    console.error(e);
+    loading.classList.remove('show');
+    btn.disabled = false;
+    alert('Simulation failed: '+e.message);
+    return;
+  }
+  const elapsed = performance.now() - t0;
+
+  lastResult = sim;
+  lastParams = {noiseType, gamma, p, tSteps};
+
+  // metrics
+  document.getElementById('fidelityMetric').textContent = sim.fidelity_time[sim.fidelity_time.length-1].toFixed(4);
+  document.getElementById('entMetric').textContent = sim.ent_time[sim.ent_time.length-1].toFixed(4);
+  document.getElementById('purityMetric').textContent = sim.purity_time[sim.purity_time.length-1].toFixed(4);
+  document.getElementById('timeMetric').textContent = fmtTime(elapsed);
+
+  // charts
+  const labels = sim.tlist.map(t=>t.toFixed(1));
+  probChart.data.labels = labels;
+  probChart.data.datasets[0].data = sim.prob_time.map(p=>p.q0_0);
+  probChart.data.datasets[1].data = sim.prob_time.map(p=>p.q0_1);
+  probChart.data.datasets[2].data = sim.prob_time.map(p=>p.q1_0);
+  probChart.data.datasets[3].data = sim.prob_time.map(p=>p.q1_1);
+  probChart.update();
+
+  fidChart.data.labels = labels;
+  fidChart.data.datasets[0].data = sim.fidelity_time;
+  fidChart.update();
+
+  entChart.data.labels = labels;
+  entChart.data.datasets[0].data = sim.ent_time;
+  entChart.update();
+
+  renderDensityMatrix(sim.finalRho);
+  renderBlochSphere(sim.finalRho);
+
+  const noteMap = {
+    "Phase Noise":"populations preserved — phase coherence (off-diagonal) decays",
+    "Amplitude Damping":"both qubits relax toward |00⟩ over time",
+    "Depolarizing Noise":"state mixes uniformly toward I/4",
+    "Bit Flip":"correlated X⊗X error reduces coherence with weight p",
+    "Phase Flip":"correlated Z⊗Z error reduces coherence with weight p"
+  };
+  document.getElementById('matrixNote').textContent = noteMap[noiseType];
+
+  // filename / download summary
+  const safeName = noiseType.replace(/ /g,'_');
+  const filename = `quantum_simulation_${safeName}_g${gamma}_p${p}_t${tSteps}`;
+  document.getElementById('downloadFilename').textContent = filename;
+  document.getElementById('downloadSummary').textContent =
+    `F=${sim.fidelity_time[sim.fidelity_time.length-1].toFixed(4)} · C=${sim.ent_time[sim.ent_time.length-1].toFixed(4)} · ${tSteps} steps`;
+
+  document.getElementById('lastRunStamp').textContent = 'LAST RUN ' + new Date().toLocaleTimeString();
+
+  loading.classList.remove('show');
+  btn.disabled = false;
+}
+
+function download(content, filename, mime){
+  const blob = new Blob([content], {type:mime});
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href=url; a.download=filename;
+  document.body.appendChild(a); a.click(); document.body.removeChild(a);
+  URL.revokeObjectURL(url);
+}
+
+document.getElementById('downloadJson').addEventListener('click', ()=>{
+  if(!lastResult){ alert('Run a simulation first.'); return; }
+  const payload = {
+    params: lastParams,
+    result: {
+      tlist: lastResult.tlist,
+      prob_time: lastResult.prob_time,
+      fidelity_time: lastResult.fidelity_time,
+      ent_time: lastResult.ent_time,
+      purity_time: lastResult.purity_time
+    }
+  };
+  download(JSON.stringify(payload, null, 2), `quantum_simulation_${lastParams.noiseType.replace(/ /g,'_')}.json`, 'application/json');
+});
+
+document.getElementById('downloadCsv').addEventListener('click', ()=>{
+  if(!lastResult){ alert('Run a simulation first.'); return; }
+  let csv = 't,fidelity,concurrence,purity,q0_p0,q0_p1,q1_p0,q1_p1\n';
+  lastResult.tlist.forEach((t,i)=>{
+    const pr = lastResult.prob_time[i];
+    csv += `${t.toFixed(4)},${lastResult.fidelity_time[i].toFixed(6)},${lastResult.ent_time[i].toFixed(6)},${lastResult.purity_time[i].toFixed(6)},${pr.q0_0.toFixed(6)},${pr.q0_1.toFixed(6)},${pr.q1_0.toFixed(6)},${pr.q1_1.toFixed(6)}\n`;
+  });
+  download(csv, `quantum_simulation_${lastParams.noiseType.replace(/ /g,'_')}.csv`, 'text/csv');
+});
+
+document.getElementById('runSimulation').addEventListener('click', execute);
+
+// init
+buildCharts();
+renderDensityMatrix(BELL_DM);
+renderBlochSphere(BELL_DM);
+</script>
+
+</body>
+</html>
