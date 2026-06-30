@@ -45,7 +45,6 @@ body{
     linear-gradient(180deg, var(--bg-1) 0%, var(--bg-0) 100%);
 }
 
-/* faint moving grid backdrop, instrument feel */
 .gridbg{
   position:fixed; inset:0; z-index:-1; opacity:.35;
   background-image:
@@ -56,8 +55,6 @@ body{
 }
 
 .mono{font-family:'IBM Plex Mono',monospace;}
-
-/* ---------------- Header ---------------- */
 
 header{
   display:flex; justify-content:space-between; align-items:center;
@@ -95,8 +92,8 @@ header{
   width:7px; height:7px; border-radius:50%; background:var(--good);
   display:inline-block; margin-right:7px; box-shadow:0 0 8px var(--good);
 }
-
-/* ---------------- Layout ---------------- */
+.statebar .dot.bad{ background:var(--rose); box-shadow:0 0 8px var(--rose); }
+.statebar .dot.warn{ background:var(--amber); box-shadow:0 0 8px var(--amber); }
 
 .wrapper{
   display:grid;
@@ -134,8 +131,6 @@ header{
 .panel-label::after{
   content:""; flex:1; height:1px; background:var(--panel-edge);
 }
-
-/* ---------------- Sidebar controls ---------------- */
 
 .sidebar{display:flex; flex-direction:column; gap:22px; align-self:start; position:sticky; top:104px;}
 
@@ -212,7 +207,13 @@ input[type=number]:focus{border-color:var(--cyan);}
 }
 @keyframes spin{100%{transform:rotate(360deg);}}
 
-/* ---------------- Main grid ---------------- */
+.errorBox{
+  display:none; margin-top:14px; padding:12px 14px; border-radius:10px;
+  border:1px solid rgba(226,96,122,.35); background:rgba(226,96,122,.08);
+  font-family:'IBM Plex Mono',monospace; font-size:11.5px; color:var(--rose);
+  line-height:1.5;
+}
+.errorBox.show{display:block;}
 
 .main{display:flex; flex-direction:column; gap:24px;}
 
@@ -314,7 +315,7 @@ footer{
     </div>
   </div>
   <div class="statebar">
-    <span><span class="dot"></span>ENGINE READY</span>
+    <span id="engineStatus"><span class="dot" id="engineDot"></span><span id="engineStatusText">BACKEND UNCHECKED</span></span>
     <span id="lastRunStamp">NO RUNS YET</span>
   </div>
 </header>
@@ -359,8 +360,10 @@ footer{
 
     <div class="loading" id="loading">
       <div class="spinner"></div>
-      Integrating Lindblad evolution…
+      Contacting QuTiP backend…
     </div>
+
+    <div class="errorBox" id="errorBox"></div>
   </div>
 
   <!-- MAIN -->
@@ -385,7 +388,7 @@ footer{
       <div class="metric rose">
         <div class="tag">Sim Duration</div>
         <div class="num mono" id="timeMetric">—</div>
-        <div class="sub">wall-clock, this browser</div>
+        <div class="sub">backend elapsed_ms</div>
       </div>
     </div>
 
@@ -453,12 +456,21 @@ footer{
 </div>
 
 <footer>
-  Lindblad/channel math implemented client-side · physics mirrors a QuTiP backend (mesolve, fidelity, concurrence) on a |Φ⁺⟩ Bell pair
+  Lindblad/channel math computed server-side via QuTiP (mesolve, fidelity, concurrence) on a |Φ⁺⟩ Bell pair · backend: astronicdefense-quantum-backend
 </footer>
 
 <script>
+
+// --- BACKEND CONFIGURATION ---
+// Owned/operated Hugging Face Space running the Flask + QuTiP Docker backend (app.py)
+const BACKEND_API_URL = "https://astronicdefense-quantum-backend.hf.space";
+const RUN_ENDPOINT = `${BACKEND_API_URL}/run`;
+
 /* =========================================================================
    COMPLEX LINEAR ALGEBRA — minimal kit for 2-qubit (4x4) density matrices
+   Used as a local fallback engine (for charts/fields the backend response
+   does not provide, e.g. per-qubit marginal probabilities and the full
+   density matrix) and as an offline fallback if the backend is unreachable.
    ========================================================================= */
 
 function zeros(n,m){ return Array.from({length:n},()=>Array.from({length:m},()=>[0,0])); }
@@ -541,8 +553,6 @@ const BELL_DM  = ket2dm(BELL_KET);
    NOISE CHANNELS — mirrors app.py exactly
    ========================================================================= */
 
-// Lindblad dissipator step (first-order Euler integration of d rho/dt = sum (L rho L† - 1/2{L†L,rho}) )
-// used for Phase Noise & Amplitude Damping, integrated across [0,t] in `steps` substeps
 function lindbladEvolve(rho0, Lops, t, substeps=40){
   let rho = rho0;
   const dt = t/substeps;
@@ -598,9 +608,7 @@ function applyPhaseFlip(rho, p){
    ========================================================================= */
 
 function partialTraceQubit0(rho4){
-  // trace out qubit 1 (second qubit), keep qubit 0. Basis order |q0 q1>: 00,01,10,11
   const r = zeros(2,2);
-  // rho_q0[i][j] = sum_k rho[2i+k][2j+k]
   for(let i=0;i<2;i++)for(let j=0;j<2;j++){
     let s=[0,0];
     for(let k=0;k<2;k++) s = cAdd(s, rho4[2*i+k][2*j+k]);
@@ -609,7 +617,6 @@ function partialTraceQubit0(rho4){
   return r;
 }
 function partialTraceQubit1(rho4){
-  // trace out qubit 0, keep qubit 1
   const r = zeros(2,2);
   for(let i=0;i<2;i++)for(let j=0;j<2;j++){
     let s=[0,0];
@@ -630,8 +637,6 @@ function computeProbabilities(rho4){
   };
 }
 
-// Uhlmann fidelity between rho and a pure target state rho_target = |psi><psi|
-// reduces to F = sqrt(<psi|rho|psi>) for pure target (QuTiP's `fidelity` returns sqrt form by default)
 function computeFidelity(rho, targetKet){
   const rowVec = matDagger(targetKet); // <psi|
   const tmp = matMul(rowVec, rho);      // <psi|rho  (1x4)
@@ -640,10 +645,9 @@ function computeFidelity(rho, targetKet){
   return Math.sqrt(real);
 }
 
-// Wootters concurrence for 2-qubit density matrix
 function computeConcurrence(rho4){
   const YY = kron(sigmaY, sigmaY);
-  const rhoConjStar = rho4.map(row=>row.map(v=>cConj(v))); // rho* (elementwise conjugate)
+  const rhoConjStar = rho4.map(row=>row.map(v=>cConj(v))); // rho*
   const rhoTilde = matMul(matMul(YY, rhoConjStar), YY);
   const R = matMul(rho4, rhoTilde);
   const eig = eigRealPartsOf4x4(R);
@@ -659,12 +663,8 @@ function purity(rho4){
   return Math.max(0, Math.min(1, tr));
 }
 
-// Eigenvalues of a 4x4 matrix that is similar to a Hermitian-positive operator (real, non-negative spectrum expected).
-// Use QR algorithm on the real part (imaginary parts are ~0 for R = rho * rho~ after symmetrization in practice for our test states).
 function eigRealPartsOf4x4(M){
-  // Convert to real matrix (R's eigenvalues are real & non-negative for valid density matrices); take real part
   let A = M.map(row=>row.map(v=>v[0]));
-  // Shifted QR iteration (simple, robust enough for 4x4 well-behaved matrices here)
   let n=4;
   for(let iter=0; iter<200; iter++){
     const {Q,R} = qrDecompose(A);
@@ -705,10 +705,13 @@ function qrDecompose(A){
 }
 
 /* =========================================================================
-   FULL SIMULATION RUNNER — mirrors run_simulation() in app.py
+   FULL LOCAL SIMULATION RUNNER — fallback engine, mirrors run_simulation()
+   in app.py. Used only if the backend is unreachable, and also used to
+   fill in fields (prob_time, density matrix) that the backend's /run
+   response does not currently return.
    ========================================================================= */
 
-function runSimulation(noiseType, gamma, p, tSteps){
+function runLocalSimulation(noiseType, gamma, p, tSteps){
   const length = Math.max(parseInt(tSteps)||2, 2);
   const tMax = Math.max(1, length);
   const tlist = Array.from({length}, (_,i)=> i*(tMax/(length-1)) );
@@ -765,10 +768,10 @@ probSlider.addEventListener('input', ()=>{ probVal.textContent = parseFloat(prob
 let probChart, fidChart, entChart;
 let lastResult = null;
 let lastParams = null;
+let lastSource = null; // "backend" | "local-fallback"
 
 function buildCharts(){
   const fontColor = '#8fa3bc';
-  const gridColor = 'rgba(255,255,255,0.05)';
 
   Chart.defaults.font.family = "'IBM Plex Mono', monospace";
   Chart.defaults.font.size = 11;
@@ -844,20 +847,10 @@ function renderDensityMatrix(rho){
 
 function renderBlochSphere(rho4){
   const r0 = partialTraceQubit0(rho4);
-  // Bloch vector: x = 2*Re(rho01), y = 2*Im(rho10)... use standard: rho = 1/2 (I + x*X + y*Y + z*Z)
   const x = 2*r0[0][1][0];
-  const y = 2*r0[0][1][1]; // since rho10 = conj(rho01), Im(rho10) = -Im(rho01); rho = (I + xX+yY+zZ)/2 -> rho01 = (x - iy)/2
   const yBloch = -2*r0[0][1][1];
   const z = r0[0][0][0] - r0[1][1][0];
 
-  const sphereTrace = {
-    type:'mesh3d',
-    opacity:0.12,
-    color:'#5ad9d9',
-    alphahull:0,
-    x: [], y: [], z: []
-  };
-  // generate a wireframe sphere using lines instead (cleaner look)
   const lines = [];
   const N=24;
   for(let lat=0; lat<=4; lat++){
@@ -915,8 +908,75 @@ function renderBlochSphere(rho4){
 }
 
 function fmtTime(ms){
-  if(ms<1000) return ms.toFixed(0)+'ms';
+  if(ms==null || isNaN(ms)) return '—';
+  if(ms<1000) return ms.toFixed(1)+'ms';
   return (ms/1000).toFixed(2)+'s';
+}
+
+function setEngineStatus(state, label){
+  const dot = document.getElementById('engineDot');
+  const text = document.getElementById('engineStatusText');
+  dot.classList.remove('bad','warn');
+  if(state==='ok'){ /* default green */ }
+  else if(state==='warn'){ dot.classList.add('warn'); }
+  else if(state==='bad'){ dot.classList.add('bad'); }
+  text.textContent = label;
+}
+
+function showError(message){
+  const box = document.getElementById('errorBox');
+  box.textContent = message;
+  box.classList.add('show');
+}
+function clearError(){
+  const box = document.getElementById('errorBox');
+  box.textContent = '';
+  box.classList.remove('show');
+}
+
+// Call the remote Flask/QuTiP backend. Throws on any non-OK response,
+// malformed JSON, or network error so the caller can fall back gracefully.
+async function callBackend(noiseType, gamma, p, tSteps){
+  const controller = new AbortController();
+  const timeoutId = setTimeout(()=>controller.abort(), 20000);
+
+  let response;
+  try{
+    response = await fetch(RUN_ENDPOINT, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        noise_type: noiseType,
+        gamma: gamma,
+        p: p,
+        t_steps: tSteps
+      }),
+      signal: controller.signal
+    });
+  } catch(networkErr){
+    clearTimeout(timeoutId);
+    throw new Error(`Network error reaching backend: ${networkErr.message}`);
+  }
+  clearTimeout(timeoutId);
+
+  if(!response.ok){
+    let detail = '';
+    try{ detail = await response.text(); }catch(_e){}
+    throw new Error(`Backend responded ${response.status} ${response.statusText}${detail ? ' — '+detail.slice(0,200) : ''}`);
+  }
+
+  let data;
+  try{
+    data = await response.json();
+  } catch(parseErr){
+    throw new Error(`Backend returned non-JSON response: ${parseErr.message}`);
+  }
+
+  if(!data || !data.summary || !data.result){
+    throw new Error('Backend response missing expected "summary"/"result" fields.');
+  }
+
+  return data;
 }
 
 async function execute(){
@@ -929,51 +989,102 @@ async function execute(){
   const loading = document.getElementById('loading');
   btn.disabled = true;
   loading.classList.add('show');
+  clearError();
+  setEngineStatus('warn', 'CONTACTING BACKEND…');
 
-  // yield to render the loading state
-  await new Promise(r=>setTimeout(r, 30));
+  await new Promise(r=>setTimeout(r, 20)); // let the loading state paint
 
-  const t0 = performance.now();
-  let sim;
+  let backendData = null;
+  let backendErr = null;
+
   try{
-    sim = runSimulation(noiseType, gamma, p, tSteps);
-  } catch(e){
-    console.error(e);
-    loading.classList.remove('show');
+    backendData = await callBackend(noiseType, gamma, p, tSteps);
+  } catch(err){
+    backendErr = err;
+    console.error('Backend call failed, falling back to local engine:', err);
+  }
+
+  // Always compute the local engine result too — it supplies marginal
+  // probabilities and the full density matrix, which the backend's /run
+  // response does not currently include, and it's our offline fallback.
+  let local;
+  try{
+    local = runLocalSimulation(noiseType, gamma, p, tSteps);
+  } catch(localErr){
     btn.disabled = false;
-    alert('Simulation failed: '+e.message);
+    loading.classList.remove('show');
+    setEngineStatus('bad', 'SIMULATION FAILED');
+    showError(`Local fallback engine also failed: ${localErr.message}`);
     return;
   }
-  const elapsed = performance.now() - t0;
 
-  lastResult = sim;
+  let fidelityFinal, entFinal, purityFinal, elapsedMs, filename, tlist, fidelitySeries, entSeries, puritySeries;
+
+  if(backendData){
+    setEngineStatus('ok', 'BACKEND OK');
+    const s = backendData.summary;
+    const r = backendData.result;
+    fidelityFinal = s.final_fidelity;
+    entFinal = s.final_entanglement;
+    purityFinal = s.final_purity;
+    elapsedMs = s.elapsed_ms;
+    filename = backendData.filename;
+    tlist = Array.isArray(r.tlist) && r.tlist.length ? r.tlist : local.tlist;
+    fidelitySeries = Array.isArray(r.fidelity_time) && r.fidelity_time.length ? r.fidelity_time : local.fidelity_time;
+    entSeries = Array.isArray(r.ent_time) && r.ent_time.length ? r.ent_time : local.ent_time;
+    puritySeries = Array.isArray(r.purity_time) && r.purity_time.length ? r.purity_time : local.purity_time;
+    lastSource = 'backend';
+  } else {
+    setEngineStatus('warn', 'BACKEND UNREACHABLE — LOCAL FALLBACK');
+    showError(`Could not reach QuTiP backend at ${RUN_ENDPOINT}. Showing results from the local client-side fallback engine instead.\n\n${backendErr ? backendErr.message : ''}`);
+    fidelityFinal = local.fidelity_time[local.fidelity_time.length-1];
+    entFinal = local.ent_time[local.ent_time.length-1];
+    purityFinal = local.purity_time[local.purity_time.length-1];
+    elapsedMs = null;
+    const safeName = noiseType.replace(/ /g,'_');
+    filename = `quantum_simulation_${safeName}_local_fallback.pkl`;
+    tlist = local.tlist;
+    fidelitySeries = local.fidelity_time;
+    entSeries = local.ent_time;
+    puritySeries = local.purity_time;
+    lastSource = 'local-fallback';
+  }
+
+  lastResult = {
+    tlist,
+    prob_time: local.prob_time,        // backend /run does not return this — always sourced locally
+    fidelity_time: fidelitySeries,
+    ent_time: entSeries,
+    purity_time: puritySeries,
+    finalRho: local.finalRho            // backend /run does not return the density matrix — sourced locally
+  };
   lastParams = {noiseType, gamma, p, tSteps};
 
   // metrics
-  document.getElementById('fidelityMetric').textContent = sim.fidelity_time[sim.fidelity_time.length-1].toFixed(4);
-  document.getElementById('entMetric').textContent = sim.ent_time[sim.ent_time.length-1].toFixed(4);
-  document.getElementById('purityMetric').textContent = sim.purity_time[sim.purity_time.length-1].toFixed(4);
-  document.getElementById('timeMetric').textContent = fmtTime(elapsed);
+  document.getElementById('fidelityMetric').textContent = (fidelityFinal!=null) ? Number(fidelityFinal).toFixed(4) : '—';
+  document.getElementById('entMetric').textContent = (entFinal!=null) ? Number(entFinal).toFixed(4) : '—';
+  document.getElementById('purityMetric').textContent = (purityFinal!=null) ? Number(purityFinal).toFixed(4) : '—';
+  document.getElementById('timeMetric').textContent = fmtTime(elapsedMs);
 
   // charts
-  const labels = sim.tlist.map(t=>t.toFixed(1));
-  probChart.data.labels = labels;
-  probChart.data.datasets[0].data = sim.prob_time.map(p=>p.q0_0);
-  probChart.data.datasets[1].data = sim.prob_time.map(p=>p.q0_1);
-  probChart.data.datasets[2].data = sim.prob_time.map(p=>p.q1_0);
-  probChart.data.datasets[3].data = sim.prob_time.map(p=>p.q1_1);
+  const labels = tlist.map(t=> Number(t).toFixed(1));
+  probChart.data.labels = labels.length === local.prob_time.length ? labels : local.tlist.map(t=>t.toFixed(1));
+  probChart.data.datasets[0].data = local.prob_time.map(pr=>pr.q0_0);
+  probChart.data.datasets[1].data = local.prob_time.map(pr=>pr.q0_1);
+  probChart.data.datasets[2].data = local.prob_time.map(pr=>pr.q1_0);
+  probChart.data.datasets[3].data = local.prob_time.map(pr=>pr.q1_1);
   probChart.update();
 
   fidChart.data.labels = labels;
-  fidChart.data.datasets[0].data = sim.fidelity_time;
+  fidChart.data.datasets[0].data = fidelitySeries;
   fidChart.update();
 
   entChart.data.labels = labels;
-  entChart.data.datasets[0].data = sim.ent_time;
+  entChart.data.datasets[0].data = entSeries;
   entChart.update();
 
-  renderDensityMatrix(sim.finalRho);
-  renderBlochSphere(sim.finalRho);
+  renderDensityMatrix(local.finalRho);
+  renderBlochSphere(local.finalRho);
 
   const noteMap = {
     "Phase Noise":"populations preserved — phase coherence (off-diagonal) decays",
@@ -985,11 +1096,9 @@ async function execute(){
   document.getElementById('matrixNote').textContent = noteMap[noiseType];
 
   // filename / download summary
-  const safeName = noiseType.replace(/ /g,'_');
-  const filename = `quantum_simulation_${safeName}_g${gamma}_p${p}_t${tSteps}`;
-  document.getElementById('downloadFilename').textContent = filename;
+  document.getElementById('downloadFilename').textContent = filename || `quantum_simulation_${noiseType.replace(/ /g,'_')}`;
   document.getElementById('downloadSummary').textContent =
-    `F=${sim.fidelity_time[sim.fidelity_time.length-1].toFixed(4)} · C=${sim.ent_time[sim.ent_time.length-1].toFixed(4)} · ${tSteps} steps`;
+    `F=${Number(fidelityFinal).toFixed(4)} · C=${Number(entFinal).toFixed(4)} · ${tSteps} steps · source: ${lastSource}`;
 
   document.getElementById('lastRunStamp').textContent = 'LAST RUN ' + new Date().toLocaleTimeString();
 
@@ -1010,6 +1119,7 @@ document.getElementById('downloadJson').addEventListener('click', ()=>{
   if(!lastResult){ alert('Run a simulation first.'); return; }
   const payload = {
     params: lastParams,
+    source: lastSource,
     result: {
       tlist: lastResult.tlist,
       prob_time: lastResult.prob_time,
@@ -1025,8 +1135,8 @@ document.getElementById('downloadCsv').addEventListener('click', ()=>{
   if(!lastResult){ alert('Run a simulation first.'); return; }
   let csv = 't,fidelity,concurrence,purity,q0_p0,q0_p1,q1_p0,q1_p1\n';
   lastResult.tlist.forEach((t,i)=>{
-    const pr = lastResult.prob_time[i];
-    csv += `${t.toFixed(4)},${lastResult.fidelity_time[i].toFixed(6)},${lastResult.ent_time[i].toFixed(6)},${lastResult.purity_time[i].toFixed(6)},${pr.q0_0.toFixed(6)},${pr.q0_1.toFixed(6)},${pr.q1_0.toFixed(6)},${pr.q1_1.toFixed(6)}\n`;
+    const pr = lastResult.prob_time[i] || {q0_0:0,q0_1:0,q1_0:0,q1_1:0};
+    csv += `${Number(t).toFixed(4)},${Number(lastResult.fidelity_time[i]).toFixed(6)},${Number(lastResult.ent_time[i]).toFixed(6)},${Number(lastResult.purity_time[i]).toFixed(6)},${pr.q0_0.toFixed(6)},${pr.q0_1.toFixed(6)},${pr.q1_0.toFixed(6)},${pr.q1_1.toFixed(6)}\n`;
   });
   download(csv, `quantum_simulation_${lastParams.noiseType.replace(/ /g,'_')}.csv`, 'text/csv');
 });
@@ -1037,6 +1147,7 @@ document.getElementById('runSimulation').addEventListener('click', execute);
 buildCharts();
 renderDensityMatrix(BELL_DM);
 renderBlochSphere(BELL_DM);
+setEngineStatus('warn', 'BACKEND UNCHECKED');
 </script>
 
 </body>
