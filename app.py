@@ -1,4 +1,5 @@
 from flask import Flask, render_template, request, jsonify, send_from_directory, abort
+from flask_cors import CORS  # <-- Added for Cross-Origin standard requests
 import os
 import time
 import numpy as np
@@ -9,22 +10,12 @@ from qutip import (basis, tensor, ket2dm, fidelity, concurrence,
 # -------------------------------
 # App setup
 # -------------------------------
-# Flask looks for templates in a folder literally named "templates" next to
-# this file by default. That folder (and index.html inside it) was missing,
-# which is exactly what caused the TemplateNotFound error. template_folder
-# is set explicitly here too, just to make the expected layout obvious:
-#
-#   QuantumState/
-#     app.py
-#     templates/
-#       index.html      <-- the dashboard from our chat
-#     simulations/       <-- created automatically, stores .pkl results
-#
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 TEMPLATE_DIR = os.path.join(BASE_DIR, 'templates')
 SIM_DIR = os.path.join(BASE_DIR, 'simulations')
 
 app = Flask(__name__, template_folder=TEMPLATE_DIR)
+CORS(app)  # <-- This line ensures Vercel Frontend can easily talk to Hugging Face!
 os.makedirs(SIM_DIR, exist_ok=True)
 
 
@@ -103,9 +94,6 @@ def compute_entanglement(rho):
 
 
 def compute_purity(rho):
-    # Tr(rho^2) -- this is shown on the dashboard as "Purity" but the
-    # original backend never computed it, so the frontend's metric card
-    # would otherwise have nothing real to display from a live run.
     return float((rho * rho).tr().real)
 
 
@@ -113,7 +101,6 @@ def compute_purity(rho):
 def run_simulation(noise_type, gamma, p, t_steps):
     bell_state = create_bell_pair()
     bell_density = ket2dm(bell_state)
-    # ensure at least two points in tlist
     length = max(int(t_steps), 2)
     tlist = np.linspace(0, max(1, t_steps), length)
 
@@ -155,6 +142,10 @@ def run_simulation(noise_type, gamma, p, t_steps):
 # -------------------------------
 @app.route('/')
 def index():
+    # If index.html is missing inside templates folder on HF Spaces,
+    # this returns a clean API check response instead of crashing with TemplateNotFound
+    if not os.path.exists(os.path.join(TEMPLATE_DIR, 'index.html')):
+        return jsonify({"status": "Quantum Engine Online", "framework": "QuTiP OpenPulse"})
     return render_template('index.html')
 
 
@@ -180,12 +171,6 @@ def run():
             'result': sim
         }, f)
 
-    # Field names below (params/result/tlist/prob_time/fidelity_time/
-    # ent_time/purity_time) match what index.html's downloadJson /
-    # downloadCsv handlers and the metric cards expect, so the same
-    # template can be pointed at this real QuTiP-backed endpoint instead
-    # of its built-in client-side math if you wire up a fetch() call to
-    # /run from the "Run Simulation" button.
     response = {
         'filename': filename,
         'params': {'noise_type': noise_type, 'gamma': gamma, 'p': p, 't_steps': t_steps},
@@ -209,6 +194,6 @@ def download_file(filename):
 
 
 if __name__ == '__main__':
-    # Railway passes a dynamic port variable to the system environment
-    port = int(os.environ.get("PORT", 5000))
+    # Defaulting to 7860 as Hugging Face Spaces mapping standard
+    port = int(os.environ.get("PORT", 7860))
     app.run(host='0.0.0.0', port=port)
